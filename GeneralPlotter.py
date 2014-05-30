@@ -8,11 +8,116 @@ Created on Tue Feb 18 17:38:57 2014
 import numpy as np
 #from NetworkXCreator import NetworkXCreator
 import networkx as nx
+from DataManipulation import DataManipulation
 from scipy.cluster.vq import kmeans,vq,whiten
 import pandas as pd
 import matplotlib.pyplot as plt
 import sys
 import pdb
+from NetworkSampling import NetworkSampling
+import prettyplotlib as ppl
+import igraph as ig
+def pcolormesh(*args, **kwargs):
+    from prettyplotlib.colors import blue_red, blues_r, reds   
+    from prettyplotlib.utils import remove_chartjunk, maybe_get_fig_ax
+    
+    """
+    Use for large datasets
+
+    Non-traditional `pcolormesh` kwargs are:
+    - xticklabels, which will put x tick labels exactly in the center of the
+    heatmap block
+    - yticklables, which will put y tick labels exactly aligned in the center
+     of the heatmap block
+     - xticklabels_rotation, which can be either 'horizontal' or 'vertical'
+     depending on how you want the xticklabels rotated. The default is
+     'horizontal', but if you have xticklabels that are longer, you may want
+     to do 'vertical' so they don't overlap.
+     - yticklabels_rotation, which can also be either 'horizontal' or
+     'vertical'. The default is 'horizontal' and in most cases,
+     that's what you'll want to stick with. But the option is there if you
+     want.
+    - center_value, which will be the centered value for a divergent
+    colormap, for example if you have data above and below zero, but you want
+    the white part of the colormap to be equal to 10 rather than 0,
+    then specify 'center_value=10'.
+    """
+    # Deal with arguments in kwargs that should be there, or need to be taken
+    #  out
+    fig, ax, args, kwargs = maybe_get_fig_ax(*args, **kwargs)
+
+    x = args[0]
+
+    kwargs.setdefault('vmax', x.max())
+    kwargs.setdefault('vmin', x.min())
+
+    center_value = kwargs.pop('center_value', 0)
+
+    # If
+    divergent_data = False
+    if kwargs['vmax'] > 0 and kwargs['vmin'] < 0:
+        divergent_data = True
+        kwargs['vmax'] += center_value
+        kwargs['vmin'] += center_value
+
+    # If we have both negative and positive values, use a divergent colormap
+    if 'cmap' not in kwargs:
+        # Check if this is divergent
+        if divergent_data:
+            kwargs['cmap'] = blue_red
+        elif kwargs['vmax'] <= 0:
+                kwargs['cmap'] = blues_r
+        elif kwargs['vmax'] > 0:
+            kwargs['cmap'] = reds
+
+    if 'xticklabels' in kwargs:
+        xticklabels = kwargs['xticklabels']
+        kwargs.pop('xticklabels')
+    else:
+        xticklabels = None
+    if 'yticklabels' in kwargs:
+        yticklabels = kwargs['yticklabels']
+        kwargs.pop('yticklabels')
+    else:
+        yticklabels = None
+
+    if 'xticklabels_rotation' in kwargs:
+        xticklabels_rotation = kwargs['xticklabels_rotation']
+        kwargs.pop('xticklabels_rotation')
+    else:
+        xticklabels_rotation = 'horizontal'
+    if 'yticklabels_rotation' in kwargs:
+        yticklabels_rotation = kwargs['yticklabels_rotation']
+        kwargs.pop('yticklabels_rotation')
+    else:
+        yticklabels_rotation = 'horizontal'
+
+    
+    
+    use_colorbar = kwargs.pop('use_colorbar',True)
+    ax_colorbar = kwargs.pop('ax_colorbar', None)
+    orientation_colorbar = kwargs.pop('orientation_colorbar', 'vertical')
+
+    p = ax.pcolormesh(*args, **kwargs)
+    ax.set_ylim(0, x.shape[0])
+
+    # Get rid of ALL axes
+    remove_chartjunk(ax, ['top', 'right', 'left', 'bottom'])
+
+    if xticklabels:
+        xticks = np.arange(0.5, x.shape[1] + 0.5)
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(xticklabels, rotation=xticklabels_rotation)
+    if yticklabels:
+        yticks = np.arange(0.5, x.shape[0] + 0.5)
+        ax.set_yticks(yticks)
+        ax.set_yticklabels(yticklabels, rotation=yticklabels_rotation)
+
+    # Show the scale of the colorbar
+    fig.colorbar(p, ax=ax_colorbar, use_gridspec=True,
+                orientation=orientation_colorbar)
+    return fig
+
 
 class GeneralPlotter:
 
@@ -42,10 +147,26 @@ class GeneralPlotter:
         plt.scatter(np.log10(df_nodes.AdultMass),np.log10(df_nodes.JuvenileMass),c=my_colors,s=ss, alpha=0.6)
         plt.xlabel('log10 (Adult Mass)',fontsize=fontaxis)
         plt.ylabel('log10 (Juvenile Mass)',fontsize=fontaxis)
+       
+    @staticmethod
+    def PLOT_Y_VS_X(df_nodes,yvar='JuvenileMass',xvar='AdultMass',fontaxis=14):
+        my_colors = []
+        df_nodes = df_nodes[df_nodes.FunctionalGroup <= 20]
+        for fg in df_nodes.FunctionalGroup:
+            my_colors.append(np.array(GeneralPlotter._FG_RGB_COLORS[fg])/255.0)
+            
+        ssmin = 10
+        ssmax = 80
+        ss = df_nodes.CohortAbundance.values*df_nodes.IndividualBodyMass.values
+        ss = ssmin + (ss-np.min(ss))*(ssmax-ssmin)/(np.max(ss)-np.min(ss))
+         
+        plt.scatter(np.log10(df_nodes[xvar]), np.log10(df_nodes[yvar]),c=my_colors,s=ss, alpha=0.6)
+        plt.xlabel('log10 (%s)' % xvar, fontsize=fontaxis)
+        plt.ylabel('log10 (%s)' % yvar, fontsize=fontaxis)
         
         
     @staticmethod
-    def PLOT_PRED_VS_PREY(df_nodes,df_edges,field_name = 'IndividualBodyMass',log_filter=1000):
+    def PLOT_PRED_VS_PREY(df_nodes,df_edges,field_name = 'IndividualBodyMass',log_filter=-1000):
         df_nodes = df_nodes[df_nodes.FunctionalGroup <= 30]
         df_nodes['Biomass'] = df_nodes['IndividualBodyMass']*df_nodes['CohortAbundance']
         df_edges = df_edges[df_edges.Pred_ID >= 0]
@@ -65,11 +186,13 @@ class GeneralPlotter:
         df_mass = df_mass.rename(columns = {field_name : 'mass_pred'})
         df_mass = df_mass[['Pred_ID','Prey_ID','mass_pred','mass_prey']]
         
-        xx = [df_mass['mass_pred'].min(),df_mass['mass_pred'].max()]
-        yy = [df_mass['mass_prey'].min(),df_mass['mass_prey'].max()]
+    
+        #xx = [df_mass['mass_pred'].min(),df_mass['mass_pred'].max()]
+        #yy = [df_mass['mass_pred'].min(),df_mass['mass_pred'].max()]
               
         plt.loglog(df_mass['mass_pred'],df_mass['mass_prey'],'ro')
-        plt.loglog(xx,yy)
+        plt.loglog([0.01,1e7],[0.01,1e7])
+        
         plt.xlabel('Predator %s' % field_name,fontsize=16)
         plt.ylabel('Prey %s' % field_name,fontsize=16)
                   
@@ -210,7 +333,47 @@ class GeneralPlotter:
         #plt.legend(tuple([str(label) for label in class_id.unique()]))
 
         
+    @staticmethod
+    def PLOT_SORTED_MATRIX(df_nodes=None,df_edges=None,matrix=None,igraph_object=None,axis=0):
+        '''Plot the predation matrix'''        
+        
+        if igraph_object:
+            matrix = np.asarray(igraph_object.get_adjacency().data)
+        elif not matrix:
+            igraph_object = DataManipulation.DF_TO_IGRAPH(df_nodes,df_edges)
+            matrix = np.asarray(igraph_object.get_adjacency().data)
+
+        sum_rows = matrix.sum(axis=axis)
+        new_idx = np.argsort(sum_rows)
+        
+        plt.imshow(matrix.take(new_idx,axis=0).take(new_idx,axis=1))
+
+    @staticmethod
+    def PLOT_MATRIX(matrix,idx=None,axis=0,sort = True, show_bar=True,new_figure=False):
+        matrix = np.asarray(matrix)        
+        if idx is None:
+            if sort == True:            
+                sum_rows = matrix.sum(axis=axis)            
+                idx = np.argsort(sum_rows)
+            else:
+                idx = range(matrix.shape[0])
+        
+        if new_figure:
+            plt.figure(num=None, figsize=(8, 6), dpi=80, facecolor='w', edgecolor='k')
+        
+        
+        plt.imshow(matrix.take(idx,axis=0).take(idx,axis=1),interpolation='nearest')
+        if show_bar:
+            plt.colorbar()
     
+    @staticmethod
+    def SORT_MATRIX(matrix,idx=None,axis=0):
+        matrix = np.asarray(matrix)        
+        if idx is None:
+            sum_rows = matrix.sum(axis=axis)            
+            idx = np.argsort(sum_rows)
+            
+        return matrix.take(idx,axis=0).take(idx,axis=1)
         
     
     @staticmethod
@@ -254,4 +417,165 @@ class GeneralPlotter:
         G = nx.connected_component_subgraphs(G)[0]
         
         FilterData.PRINT_BASIC_INFORMATION(G)
+        
+    
+    @staticmethod
+    def PLOT_CDF(degrees):
+        
+        values = np.array(degrees)
+        values.sort()
+        
+        elements = np.unique(values)
+        elements = elements[::-1]
+    
+        counting = np.zeros([len(elements),1])
+        
+        for i in range(len(elements)):
+            counting[i] = len(values[values==elements[i]])
+        
+        cdf = np.cumsum(1.0*counting)/np.sum(counting)
+        
+        
+           
+        plt.semilogy(elements[::-1], cdf[::-1],'yo')
+        #plt.title('N = %i E= % i')
+        plt.xlabel('# of trophic links')
+        plt.ylabel('CDF value')
+        
+        
+        plt.show()
+
+    @staticmethod
+    def PLOT_RELATIVE_ABUNDANCE(ab,nsampling = 200):
+            n = len(ab)
+            selection=np.random.choice(range(n),p=NetworkSampling.FITNESS_PROBABILITY(ab),size=nsampling)
+            uniq_keys = np.unique(selection)
+            bins = uniq_keys.searchsorted(selection)
+            plt.hist(np.log(np.bincount(bins)),bins=10)
+
+    @staticmethod
+    def PLOT_MATRIX_SAMPLING(matrix,idx=None,sampling_size=None,colorm='jet'):
+        from prettyplotlib import brewer2mpl
+        import pylab
+        red_purple = brewer2mpl.get_map('Blues', 'Sequential', 9).mpl_colormap
+        green_purple = brewer2mpl.get_map('PRGn', 'diverging', 11).mpl_colormap
+        if sampling_size == None:
+            sampling_size = [1e0,1e1,1e2,1e3,1e4,1e300]
+        
+        fig,ax = ppl.subplots(nrows=2,ncols=3)
+        for ss in range(len(sampling_size)):
+            nn = sampling_size[ss]
+            pmatrix = 1 - np.exp(-nn*matrix)
+            aa = ax[ss/3,ss%3]
+            
+            #plt.subplot(2,3,ss+1)
+            #GeneralPlotter.PLOT_MATRIX(pmatrix,axis=1)
+            #print ss/3,ss%3
+            pmatrix = GeneralPlotter.SORT_MATRIX(pmatrix,idx=idx,axis=1) 
+            pmatrix = np.flipud(pmatrix)
+            #im = aa.matshow(pmatrix, aspect='auto', origin='lower', cmap=pylab.cm.YlGnBu)
+            #pp=aa.imshow(pmatrix,interpolation='nearest',cmap=colorm)    
+            #fig.colorbar(pp,ax=aa)
+            pcolormesh(fig,aa,pmatrix,center_value=0.5, ax_colorbar=aa,cmap=red_purple)
+            aa.set_xticks([])
+            aa.set_yticks([])
+            
+            aa.set_title(r'$n = %i$' % sampling_size[ss],fontsize=20)
+            if ss==5:
+                plt.title('$n = \infty$',fontsize=20)
+
+      
+      
+      
+    @staticmethod
+    def PLOT_CDF_SAMPLING(matrix, sampling_size = None):
+        
+        if sampling_size == None:
+            sampling_size = [1e0,1e1,1e2,1e3,1e4,1e300]
+        
+        fig,ax = ppl.subplots(nrows=2,ncols=3)
+        for ss in range(len(sampling_size)):
+            nn = sampling_size[ss]
+            pmatrix = 1 - np.exp(-nn*matrix)            
+            
+            #degrees = np.sum(pmatrix>0.8,axis=0) + np.sum(pmatrix>0.999,axis=1)
+            degrees = np.round(np.sum(pmatrix,axis=0) + np.sum(pmatrix,axis=1))
+            
+        
+            aa = ax[ss/3,ss%3]
+            
+            values = np.array(degrees)
+            values.sort()
+            
+            elements = np.unique(values)
+            elements = elements[::-1]
+        
+            counting = np.zeros([len(elements),1])
+            
+            for i in range(len(elements)):
+                counting[i] = len(values[values==elements[i]])
+            
+            cdf = np.cumsum(1.0*counting)/np.sum(counting)
+            
+            
+               
+            aa.semilogy(elements[::-1], cdf[::-1],'bo')
+            #plt.title('N = %i E= % i')
+            aa.set_xlabel('# of trophic links')
+            aa.set_ylabel('CDF value')
+            
+            aa.set_title(r'$n = %i$' % sampling_size[ss],fontsize=20)
+            if ss==5:
+                plt.title('$n = \infty$',fontsize=20)
+            
+            
+    @staticmethod
+    def PLOT_SAMPLING_BASIC_METRICS(matrix, sampling_size = None):
+        
+        if sampling_size == None:
+            sampling_size = np.arange(1,6000,1)
+        
+        L = np.zeros(len(sampling_size))
+        S = np.zeros(len(sampling_size))
+        C = np.zeros(len(sampling_size))
+        Lrand = np.zeros(len(sampling_size))
+        Crand = np.zeros(len(sampling_size))
+        
+        for ss in range(len(sampling_size)):
+            nn = sampling_size[ss]
+            pmatrix = 1 - np.exp(-nn*matrix)            
+            ns = pmatrix.shape[0]
+            adjacency = pmatrix#np.random.rand(ns,ns)<pmatrix
+            adjacency_rand = np.random.rand(ns,ns)<pmatrix
+            #degrees = np.sum(pmatrix>0.8,axis=0) + np.sum(pmatrix>0.999,axis=1)
+            
+            S[ss] = ns
+            L[ss]= np.round(np.sum(adjacency))
+            C[ss] = L[ss]/(ns**2)
+            Lrand[ss]= np.sum(adjacency_rand)
+            Crand[ss] = Lrand[ss]/(ns**2)
+
+            
+        plt.clf()
+        plt.subplot(1,2,1)
+        plt.plot(sampling_size,Lrand,'r')
+        plt.plot(sampling_size,L,'b',linewidth=2.0)
+        plt.ylabel('$L$',fontsize=20)        
+        plt.xlabel('$n$',fontsize=20)        
+        
+        plt.subplot(1,2,2)
+        plt.plot(sampling_size,Crand,'r')
+        plt.plot(sampling_size,C,'b',linewidth=2.0)
+        plt.ylabel('$C$',fontsize=20)        
+        plt.xlabel('$n$',fontsize=20)        
+        
+        return L,S,C,sampling_size
+        
+           
+         
+         
+    @staticmethod
+    def PLOT_MODULAR_IG(gi):
+        
+        ig.plot(gi.community_leading_eigenvector())
         

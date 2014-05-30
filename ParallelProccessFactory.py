@@ -2,7 +2,7 @@ from multiprocessing import Pool
 from time import sleep
 from random import randint
 import os
-from code import *
+#from code import *
 from time import time
 
 

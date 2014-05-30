@@ -12,6 +12,7 @@ import sys as sys
 import matplotlib.pyplot as plt
 
 
+
 class BasicExperiments:
     
     @staticmethod

@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Created on Fri Feb 21 11:54:11 2014
+Created on Tue Jan 28 09:19:28 2014
 
 @author: t-cflore
 """
 
-from parallele_bridge import *
-from DataManipulation import *
+import os
+import glob
+
+#__all__ = [ os.path.basename(f)[:-3] for f in glob.glob(os.path.dirname(__file__)+"/*.py")]
